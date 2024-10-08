@@ -1,12 +1,6 @@
 # Only with Ruckig Pro
 
 from math import sin, cos
-from pathlib import Path
-from sys import path
-
-# Path to the build directory including a file similar to 'ruckig.cpython-37m-x86_64-linux-gnu'.
-build_path = Path(__file__).parent.absolute().parent / 'build'
-path.insert(0, str(build_path))
 
 from ruckig import Trackig, TargetState, InputParameter, OutputParameter
 
@@ -20,12 +14,14 @@ def model_ramp(t, ramp_vel=0.5, ramp_pos=1.0):
     target.acceleration = [0.0]
     return target
 
+
 def model_constant_acceleration(t, ramp_acc=0.05):
     target = TargetState(1)
     target.position = [t * t * ramp_acc]
     target.velocity = [t * ramp_acc]
     target.acceleration = [ramp_acc]
     return target
+
 
 def model_sinus(t, ramp_vel=0.4):
     target = TargetState(1)
@@ -36,10 +32,12 @@ def model_sinus(t, ramp_vel=0.4):
 
 
 if __name__ == '__main__':
+    # Create instances: the Trackig OTG as well as input and output parameters
     inp = InputParameter(1)
     out = OutputParameter(inp.degrees_of_freedom)
     otg = Trackig(inp.degrees_of_freedom, 0.01)
 
+    # Set input parameters
     inp.current_position = [0.0]
     inp.current_velocity = [0.0]
     inp.current_acceleration = [0.0]
@@ -54,8 +52,9 @@ if __name__ == '__main__':
 
     # otg.reactiveness = 1.0 # default value, should be in [0, 1]
 
-    print('\t'.join(['t'] + [str(i) for i in range(otg.degrees_of_freedom)]))
+    print('target | follow')
 
+    # Generate the trajectory following the target state
     steps, target_list, follow_list = [], [], []
     for t in range(500):
         target_state = model_ramp(otg.delta_time * t)
@@ -70,14 +69,16 @@ if __name__ == '__main__':
         target_list.append([target_state.position, target_state.velocity, target_state.acceleration])
         follow_list.append([out.new_position, out.new_velocity, out.new_acceleration])
 
-
     # Plot the trajectory
+    # from pathlib import Path
+    # project_path = Path(__file__).parent.parent.absolute()
+
     # import numpy as np
     # import matplotlib.pyplot as plt
 
     # follow_list = np.array(follow_list)
     # target_list = np.array(target_list)
-    
+
     # plt.ylabel(f'DoF 1')
     # plt.plot(steps, follow_list[:, 0], label='Follow Position')
     # plt.plot(steps, follow_list[:, 1], label='Follow Velocity', linestyle='dotted')
@@ -86,4 +87,4 @@ if __name__ == '__main__':
     # plt.grid(True)
     # plt.legend()
 
-    # plt.savefig(Path(__file__).parent.absolute() / '13_trajectory.pdf')
+    # plt.savefig(project_path / 'examples' / '13_trajectory.pdf')
