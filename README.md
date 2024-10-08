@@ -1,3 +1,26 @@
+## ruckig (jazzy) - 0.14.0-1
+
+The packages in the `ruckig` repository were released into the `jazzy` distro by running `/home/z572/gits/revyos-ros/venv2/bin/bloom-release -r jazzy ruckig --override-release-repository-push-url git@github.com:revyos-ros/ruckig-release.git` on `Tue, 08 Oct 2024 05:57:53 -0000`
+
+The `ruckig` package was released.
+
+Version of package(s) in repository `ruckig`:
+
+- upstream repository: https://github.com/pantor/ruckig.git
+- release repository: https://github.com/revyos-ros/ruckig-release.git
+- rosdistro version: `0.9.2-5`
+- old version: `0.9.2-5`
+- new version: `0.14.0-1`
+
+Versions of tools used:
+
+- bloom version: `0.12.0`
+- catkin_pkg version: `1.0.0`
+- rosdep version: `0.22.2`
+- rosdistro version: `0.9.0`
+- vcstools version: `0.1.42`
+
+
 ## ruckig (humble) - 0.9.2-1
 
 The packages in the `ruckig` repository were released into the `humble` distro by running `/usr/bin/bloom-release ruckig -t humble -r humble` on `Tue, 17 Jan 2023 01:05:22 -0000`
