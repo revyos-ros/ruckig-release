@@ -8,10 +8,6 @@
 #include <limits>
 #include <optional>
 
-#ifdef WITH_SERIALIZATION
-#include <json/json.hpp>
-#endif
-
 #include <ruckig/brake.hpp>
 #include <ruckig/roots.hpp>
 #include <ruckig/utils.hpp>
@@ -20,7 +16,7 @@
 namespace ruckig {
 
 //! Information about the position extrema
-struct PositionExtrema {
+struct Bound {
     //! The extreme position
     double min, max;
 
@@ -29,7 +25,9 @@ struct PositionExtrema {
 };
 
 
-//! The state profile for position, velocity, acceleration and jerk for a single DoF
+//! @brief A single-dof kinematic profile with position, velocity, acceleration and jerk
+//!
+//! The class members are only available in the Ruckig Community Version.
 class Profile {
     constexpr static double v_eps {1e-12};
     constexpr static double a_eps {1e-12};
@@ -43,21 +41,22 @@ class Profile {
     constexpr static double t_max {1e12};
 
 public:
-    enum class Limits { ACC0_ACC1_VEL, VEL, ACC0, ACC1, ACC0_ACC1, ACC0_VEL, ACC1_VEL, NONE } limits;
-    enum class Direction { UP, DOWN } direction;
-    enum class JerkSigns { UDDU, UDUD } jerk_signs;
-
     std::array<double, 7> t, t_sum, j;
     std::array<double, 8> a, v, p;
-
-    //! Target (final) kinematic state
-    double pf, vf, af;
 
     //! Brake sub-profiles
     BrakeProfile brake, accel;
 
-    // For velocity interface
-    template<JerkSigns jerk_signs, Limits limits>
+    //! Target (final) kinematic state
+    double pf, vf, af;
+
+    enum class ReachedLimits { ACC0_ACC1_VEL, VEL, ACC0, ACC1, ACC0_ACC1, ACC0_VEL, ACC1_VEL, NONE } limits;
+    enum class Direction { UP, DOWN } direction;
+    enum class ControlSigns { UDDU, UDUD } control_signs;
+
+
+    // For third-order velocity interface
+    template<ControlSigns control_signs, ReachedLimits limits>
     bool check_for_velocity(double jf, double aMax, double aMin) {
         if (t[0] < 0) {
             return false;
@@ -72,7 +71,7 @@ public:
             t_sum[i+1] = t_sum[i] + t[i+1];
         }
 
-        if constexpr (limits == Limits::ACC0) {
+        if constexpr (limits == ReachedLimits::ACC0) {
             if (t[1] < std::numeric_limits<double>::epsilon()) {
                 return false;
             }
@@ -82,10 +81,10 @@ public:
             return false;
         }
 
-        if constexpr (jerk_signs == JerkSigns::UDDU) {
-            j = {jf, 0, -jf, 0, -jf, 0, jf};
+        if constexpr (control_signs == ControlSigns::UDDU) {
+            j = {(t[0] > 0 ? jf : 0), 0, (t[2] > 0 ? -jf : 0), 0, (t[4] > 0 ? -jf : 0), 0, (t[6] > 0 ? jf : 0)};
         } else {
-            j = {jf, 0, -jf, 0, jf, 0, -jf};
+            j = {(t[0] > 0 ? jf : 0), 0, (t[2] > 0 ? -jf : 0), 0, (t[4] > 0 ? jf : 0), 0, (t[6] > 0 ? -jf : 0)};
         }
 
         for (size_t i = 0; i < 7; ++i) {
@@ -94,7 +93,7 @@ public:
             p[i+1] = p[i] + t[i] * (v[i] + t[i] * (a[i] / 2 + t[i] * j[i] / 6));
         }
 
-        this->jerk_signs = jerk_signs;
+        this->control_signs = control_signs;
         this->limits = limits;
 
         direction = (aMax > 0) ? Profile::Direction::UP : Profile::Direction::DOWN;
@@ -108,15 +107,15 @@ public:
             && a[1] <= aUppLim && a[3] <= aUppLim && a[5] <= aUppLim;
     }
 
-    template<JerkSigns jerk_signs, Limits limits>
+    template<ControlSigns control_signs, ReachedLimits limits>
     inline bool check_for_velocity_with_timing(double, double jf, double aMax, double aMin) {
         // Time doesn't need to be checked as every profile has a: tf - ... equation
-        return check_for_velocity<jerk_signs, limits>(jf, aMax, aMin); // && (std::abs(t_sum.back() - tf) < t_precision);
+        return check_for_velocity<control_signs, limits>(jf, aMax, aMin); // && (std::abs(t_sum.back() - tf) < t_precision);
     }
 
-    template<JerkSigns jerk_signs, Limits limits>
+    template<ControlSigns control_signs, ReachedLimits limits>
     inline bool check_for_velocity_with_timing(double tf, double jf, double aMax, double aMin, double jMax) {
-        return (std::abs(jf) < std::abs(jMax) + j_eps) && check_for_velocity_with_timing<jerk_signs, limits>(tf, jf, aMax, aMin);
+        return (std::abs(jf) < std::abs(jMax) + j_eps) && check_for_velocity_with_timing<control_signs, limits>(tf, jf, aMax, aMin);
     }
 
     inline void set_boundary_for_velocity(double p0_new, double v0_new, double a0_new, double vf_new, double af_new) {
@@ -127,8 +126,51 @@ public:
         vf = vf_new;
     }
 
-    // For position interface
-    template<JerkSigns jerk_signs, Limits limits, bool set_limits = false>
+
+    // For second-order velocity interface
+    template<ControlSigns control_signs, ReachedLimits limits>
+    bool check_for_second_order_velocity(double aUp) {
+        // ReachedLimits::ACC0
+        if (t[1] < 0.0) {
+            return false;
+        }
+
+        t_sum = {0, t[1], t[1], t[1], t[1], t[1], t[1]};
+        if (t_sum.back() > t_max) { // For numerical reasons, is that needed?
+            return false;
+        }
+
+        j = {0, 0, 0, 0, 0, 0, 0};
+        a = {0, (t[1] > 0) ? aUp : 0, 0, 0, 0, 0, 0, af};
+        for (size_t i = 0; i < 7; ++i) {
+            v[i+1] = v[i] + t[i] * a[i];
+            p[i+1] = p[i] + t[i] * (v[i] + t[i] * a[i] / 2);
+        }
+
+        this->control_signs = control_signs;
+        this->limits = limits;
+
+        direction = (aUp > 0) ? Profile::Direction::UP : Profile::Direction::DOWN;
+
+        // Velocity limit can be broken in the beginning if both initial velocity and acceleration are too high
+        // std::cout << std::setprecision(15) << "target: " << std::abs(p.back() - pf) << " " << std::abs(v.back() - vf) << " " << std::abs(a.back() - af) << " T: " << t_sum.back() << " " << to_string() << std::endl;
+        return std::abs(v.back() - vf) < v_precision;
+    }
+
+    template<ControlSigns control_signs, ReachedLimits limits>
+    inline bool check_for_second_order_velocity_with_timing(double, double aUp) {
+        // Time doesn't need to be checked as every profile has a: tf - ... equation
+        return check_for_second_order_velocity<control_signs, limits>(aUp); // && (std::abs(t_sum.back() - tf) < t_precision);
+    }
+
+    template<ControlSigns control_signs, ReachedLimits limits>
+    inline bool check_for_second_order_velocity_with_timing(double tf, double aUp, double aMax, double aMin) {
+        return (aMin - a_eps < aUp) && (aUp < aMax + a_eps) && check_for_second_order_velocity_with_timing<control_signs, limits>(tf, aUp);
+    }
+
+
+    // For third-order position interface
+    template<ControlSigns control_signs, ReachedLimits limits, bool set_limits = false>
     bool check(double jf, double vMax, double vMin, double aMax, double aMin) {
         if (t[0] < 0) {
             return false;
@@ -143,19 +185,19 @@ public:
             t_sum[i+1] = t_sum[i] + t[i+1];
         }
 
-        if constexpr (limits == Limits::ACC0_ACC1_VEL || limits == Limits::ACC0_VEL || limits == Limits::ACC1_VEL || limits == Limits::VEL) {
+        if constexpr (limits == ReachedLimits::ACC0_ACC1_VEL || limits == ReachedLimits::ACC0_VEL || limits == ReachedLimits::ACC1_VEL || limits == ReachedLimits::VEL) {
             if (t[3] < std::numeric_limits<double>::epsilon()) {
                 return false;
             }
         }
 
-        if constexpr (limits == Limits::ACC0 || limits == Limits::ACC0_ACC1) {
+        if constexpr (limits == ReachedLimits::ACC0 || limits == ReachedLimits::ACC0_ACC1) {
             if (t[1] < std::numeric_limits<double>::epsilon()) {
                 return false;
             }
         }
 
-        if constexpr (limits == Limits::ACC1 || limits == Limits::ACC0_ACC1) {
+        if constexpr (limits == ReachedLimits::ACC1 || limits == ReachedLimits::ACC0_ACC1) {
             if (t[5] < std::numeric_limits<double>::epsilon()) {
                 return false;
             }
@@ -165,10 +207,10 @@ public:
             return false;
         }
 
-        if constexpr (jerk_signs == JerkSigns::UDDU) {
-            j = {jf, 0, -jf, 0, -jf, 0, jf};
+        if constexpr (control_signs == ControlSigns::UDDU) {
+            j = {(t[0] > 0 ? jf : 0), 0, (t[2] > 0 ? -jf : 0), 0, (t[4] > 0 ? -jf : 0), 0, (t[6] > 0 ? jf : 0)};
         } else {
-            j = {jf, 0, -jf, 0, jf, 0, -jf};
+            j = {(t[0] > 0 ? jf : 0), 0, (t[2] > 0 ? -jf : 0), 0, (t[4] > 0 ? jf : 0), 0, (t[6] > 0 ? -jf : 0)};
         }
 
         direction = (vMax > 0) ? Profile::Direction::UP : Profile::Direction::DOWN;
@@ -180,20 +222,20 @@ public:
             v[i+1] = v[i] + t[i] * (a[i] + t[i] * j[i] / 2);
             p[i+1] = p[i] + t[i] * (v[i] + t[i] * (a[i] / 2 + t[i] * j[i] / 6));
 
-            if constexpr (limits == Limits::ACC0_ACC1_VEL || limits == Limits::ACC0_ACC1 || limits == Limits::ACC0_VEL || limits == Limits::ACC1_VEL || limits == Limits::VEL) {
+            if constexpr (limits == ReachedLimits::ACC0_ACC1_VEL || limits == ReachedLimits::ACC0_ACC1 || limits == ReachedLimits::ACC0_VEL || limits == ReachedLimits::ACC1_VEL || limits == ReachedLimits::VEL) {
                 if (i == 2) {
                     a[3] = 0.0;
                 }
             }
 
             if constexpr (set_limits) {
-                if constexpr (limits == Limits::ACC1) {
+                if constexpr (limits == ReachedLimits::ACC1) {
                     if (i == 2) {
                         a[3] = aMin;
                     }
                 }
 
-                if constexpr (limits == Limits::ACC0_ACC1) {
+                if constexpr (limits == ReachedLimits::ACC0_ACC1) {
                     if (i == 0) {
                         a[1] = aMax;
                     }
@@ -212,7 +254,7 @@ public:
             }
         }
 
-        this->jerk_signs = jerk_signs;
+        this->control_signs = control_signs;
         this->limits = limits;
 
         const double aUppLim = (direction == Profile::Direction::UP ? aMax : aMin) + a_eps;
@@ -227,15 +269,15 @@ public:
             && v[3] >= vLowLim && v[4] >= vLowLim && v[5] >= vLowLim && v[6] >= vLowLim;
     }
 
-    template<JerkSigns jerk_signs, Limits limits>
+    template<ControlSigns control_signs, ReachedLimits limits>
     inline bool check_with_timing(double, double jf, double vMax, double vMin, double aMax, double aMin) {
         // Time doesn't need to be checked as every profile has a: tf - ... equation
-        return check<jerk_signs, limits>(jf, vMax, vMin, aMax, aMin); // && (std::abs(t_sum.back() - tf) < t_precision);
+        return check<control_signs, limits>(jf, vMax, vMin, aMax, aMin); // && (std::abs(t_sum.back() - tf) < t_precision);
     }
 
-    template<JerkSigns jerk_signs, Limits limits>
+    template<ControlSigns control_signs, ReachedLimits limits>
     inline bool check_with_timing(double tf, double jf, double vMax, double vMin, double aMax, double aMin, double jMax) {
-        return (std::abs(jf) < std::abs(jMax) + j_eps) && check_with_timing<jerk_signs, limits>(tf, jf, vMax, vMin, aMax, aMin);
+        return (std::abs(jf) < std::abs(jMax) + j_eps) && check_with_timing<control_signs, limits>(tf, jf, vMax, vMin, aMax, aMin);
     }
 
     inline void set_boundary(const Profile& profile) {
@@ -259,7 +301,107 @@ public:
     }
 
 
-    static void check_position_extremum(double t_ext, double t_sum, double t, double p, double v, double a, double j, PositionExtrema& ext) {
+    // For second-order position interface
+    template<ControlSigns control_signs, ReachedLimits limits>
+    bool check_for_second_order(double aUp, double aDown, double vMax, double vMin) {
+        if (t[0] < 0) {
+            return false;
+        }
+
+        t_sum[0] = t[0];
+        for (size_t i = 0; i < 6; ++i) {
+            if (t[i+1] < 0) {
+                return false;
+            }
+
+            t_sum[i+1] = t_sum[i] + t[i+1];
+        }
+
+        if (t_sum.back() > t_max) { // For numerical reasons, is that needed?
+            return false;
+        }
+
+        j = {0, 0, 0, 0, 0, 0, 0};
+        if constexpr (control_signs == ControlSigns::UDDU) {
+            a = {(t[0] > 0 ? aUp : 0), 0, (t[2] > 0 ? aDown : 0), 0, (t[4] > 0 ? aDown : 0), 0, (t[6] > 0 ? aUp : 0), af};
+        } else {
+            a = {(t[0] > 0 ? aUp : 0), 0, (t[2] > 0 ? aDown : 0), 0, (t[4] > 0 ? aUp : 0), 0, (t[6] > 0 ? aDown : 0), af};
+        }
+
+        direction = (vMax > 0) ? Profile::Direction::UP : Profile::Direction::DOWN;
+        const double vUppLim = (direction == Profile::Direction::UP ? vMax : vMin) + v_eps;
+        const double vLowLim = (direction == Profile::Direction::UP ? vMin : vMax) - v_eps;
+
+        for (size_t i = 0; i < 7; ++i) {
+            v[i+1] = v[i] + t[i] * a[i];
+            p[i+1] = p[i] + t[i] * (v[i] + t[i] * a[i] / 2);
+        }
+
+        this->control_signs = control_signs;
+        this->limits = limits;
+
+        // Velocity limit can be broken in the beginning if both initial velocity and acceleration are too high
+        // std::cout << std::setprecision(16) << "target: " << std::abs(p.back() - pf) << " " << std::abs(v.back() - vf) << " " << std::abs(a.back() - af) << " T: " << t_sum.back() << " " << to_string() << std::endl;
+        return std::abs(p.back() - pf) < p_precision && std::abs(v.back() - vf) < v_precision
+            && v[2] <= vUppLim && v[3] <= vUppLim && v[4] <= vUppLim && v[5] <= vUppLim && v[6] <= vUppLim
+            && v[2] >= vLowLim && v[3] >= vLowLim && v[4] >= vLowLim && v[5] >= vLowLim && v[6] >= vLowLim;
+    }
+
+    template<ControlSigns control_signs, ReachedLimits limits>
+    inline bool check_for_second_order_with_timing(double, double aUp, double aDown, double vMax, double vMin) {
+        // Time doesn't need to be checked as every profile has a: tf - ... equation
+        return check_for_second_order<control_signs, limits>(aUp, aDown, vMax, vMin); // && (std::abs(t_sum.back() - tf) < t_precision);
+    }
+
+    template<ControlSigns control_signs, ReachedLimits limits>
+    inline bool check_for_second_order_with_timing(double tf, double aUp, double aDown, double vMax, double vMin, double aMax, double aMin) {
+        return (aMin - a_eps < aUp) && (aUp < aMax + a_eps) && (aMin - a_eps < aDown) && (aDown < aMax + a_eps) && check_for_second_order_with_timing<control_signs, limits>(tf, aUp, aDown, vMax, vMin);
+    }
+
+
+    // For first-order position interface
+    template<ControlSigns control_signs, ReachedLimits limits>
+    bool check_for_first_order(double vUp) {
+        // ReachedLimits::VEL
+        if (t[3] < 0.0) {
+            return false;
+        }
+
+        t_sum = {0, 0, 0, t[3], t[3], t[3], t[3]};
+        if (t_sum.back() > t_max) { // For numerical reasons, is that needed?
+            return false;
+        }
+
+        j = {0, 0, 0, 0, 0, 0, 0};
+        a = {0, 0, 0, 0, 0, 0, 0, af};
+        v = {0, 0, 0, t[3] > 0 ? vUp : 0, 0, 0, 0, vf};
+        for (size_t i = 0; i < 7; ++i) {
+            p[i+1] = p[i] + t[i] * (v[i] + t[i] * a[i] / 2);
+        }
+
+        this->control_signs = control_signs;
+        this->limits = limits;
+
+        direction = (vUp > 0) ? Profile::Direction::UP : Profile::Direction::DOWN;
+
+        return std::abs(p.back() - pf) < p_precision;
+    }
+
+    template<ControlSigns control_signs, ReachedLimits limits>
+    inline bool check_for_first_order_with_timing(double, double vUp) {
+        // Time doesn't need to be checked as every profile has a: tf - ... equation
+        return check_for_first_order<control_signs, limits>(vUp); // && (std::abs(t_sum.back() - tf) < t_precision);
+    }
+
+    template<ControlSigns control_signs, ReachedLimits limits>
+    inline bool check_for_first_order_with_timing(double tf, double vUp, double vMax, double vMin) {
+        return (vMin - v_eps < vUp) && (vUp < vMax + v_eps) && check_for_first_order_with_timing<control_signs, limits>(tf, vUp);
+    }
+
+
+
+    // Secondary features
+    static void check_position_extremum(double t_ext, double t_sum, double t, double p, double v, double a, double j, Bound& ext) {
         if (0 < t_ext && t_ext < t) {
             double p_ext, a_ext;
             std::tie(p_ext, std::ignore, a_ext) = integrate(t_ext, p, v, a, j);
@@ -273,7 +415,7 @@ public:
         }
     }
 
-    static void check_step_for_position_extremum(double t_sum, double t, double p, double v, double a, double j, PositionExtrema& ext) {
+    static void check_step_for_position_extremum(double t_sum, double t, double p, double v, double a, double j, Bound& ext) {
         if (p < ext.min) {
             ext.min = p;
             ext.t_min = t_sum;
@@ -288,7 +430,7 @@ public:
             if (std::abs(D) < std::numeric_limits<double>::epsilon()) {
                 check_position_extremum(-a / j, t_sum, t, p, v, a, j, ext);
 
-            } else if (D > 0) {
+            } else if (D > 0.0) {
                 const double D_sqrt = std::sqrt(D);
                 check_position_extremum((-a - D_sqrt) / j, t_sum, t, p, v, a, j, ext);
                 check_position_extremum((-a + D_sqrt) / j, t_sum, t, p, v, a, j, ext);
@@ -296,8 +438,8 @@ public:
         }
     }
 
-    PositionExtrema get_position_extrema() const {
-        PositionExtrema extrema;
+    Bound get_position_extrema() const {
+        Bound extrema;
         extrema.min = std::numeric_limits<double>::infinity();
         extrema.max = -std::numeric_limits<double>::infinity();
 
@@ -331,32 +473,31 @@ public:
         return extrema;
     }
 
-    bool get_first_state_at_position(double pt, double& time, double& vt, double& at, double offset = 0.0) const {
-        for (size_t i = 0; i < 7; ++i) {
-            if (std::abs(p[i] - pt) < std::numeric_limits<double>::epsilon()) {
-                time = offset + ((i > 0) ? t_sum[i-1] : 0.0);
-                vt = v[i];
-                at = a[i];
-                return true;
-            }
+    bool get_first_state_at_position(double pt, double& time, double time_after=0.0) const {
+        double t_cum = 0.0;
 
+        for (size_t i = 0; i < 7; ++i) {
             if (t[i] == 0.0) {
                 continue;
             }
 
-            for (const double _t: roots::solveCub(j[i]/6, a[i]/2, v[i], p[i]-pt)) {
-                if (0 < _t && _t <= t[i]) {
-                    time = offset + _t + ((i > 0) ? t_sum[i-1] : 0.0);
-                    std::tie(std::ignore, vt, at) = integrate(_t, p[i], v[i], a[i], j[i]);
+            if (std::abs(p[i] - pt) < DBL_EPSILON && t_cum >= time_after) {
+                time = t_cum;
+                return true;
+            }
+
+            for (const double _t: roots::solve_cubic(j[i]/6, a[i]/2, v[i], p[i] - pt)) {
+                if (0 < _t && time_after - t_cum <= _t && _t <= t[i]) {
+                    time = _t + t_cum;
                     return true;
                 }
             }
+
+            t_cum += t[i];
         }
 
-        if (std::abs(pf - pt) < 1e-9) {
-            time = offset + t_sum.back();
-            vt = vf;
-            at = af;
+        if ((t[6] > 0.0 || t_sum.back() == 0.0) && std::abs(pf - pt) < 1e-9 && t_sum.back() >= time_after) {
+            time = t_sum.back();
             return true;
         }
 
@@ -370,25 +511,21 @@ public:
             case Direction::DOWN: result += "DOWN_"; break;
         }
         switch (limits) {
-            case Limits::ACC0_ACC1_VEL: result += "ACC0_ACC1_VEL"; break;
-            case Limits::VEL: result += "VEL"; break;
-            case Limits::ACC0: result += "ACC0"; break;
-            case Limits::ACC1: result += "ACC1"; break;
-            case Limits::ACC0_ACC1: result += "ACC0_ACC1"; break;
-            case Limits::ACC0_VEL: result += "ACC0_VEL"; break;
-            case Limits::ACC1_VEL: result += "ACC1_VEL"; break;
-            case Limits::NONE: result += "NONE"; break;
+            case ReachedLimits::ACC0_ACC1_VEL: result += "ACC0_ACC1_VEL"; break;
+            case ReachedLimits::VEL: result += "VEL"; break;
+            case ReachedLimits::ACC0: result += "ACC0"; break;
+            case ReachedLimits::ACC1: result += "ACC1"; break;
+            case ReachedLimits::ACC0_ACC1: result += "ACC0_ACC1"; break;
+            case ReachedLimits::ACC0_VEL: result += "ACC0_VEL"; break;
+            case ReachedLimits::ACC1_VEL: result += "ACC1_VEL"; break;
+            case ReachedLimits::NONE: result += "NONE"; break;
         }
-        switch (jerk_signs) {
-            case JerkSigns::UDDU: result += "_UDDU"; break;
-            case JerkSigns::UDUD: result += "_UDUD"; break;
+        switch (control_signs) {
+            case ControlSigns::UDDU: result += "_UDDU"; break;
+            case ControlSigns::UDUD: result += "_UDUD"; break;
         }
         return result;
     }
-
-#ifdef WITH_SERIALIZATION
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Profile, t, t_sum, j, a, v, p, pf, vf, af, brake, accel)
-#endif
 };
 
 } // namespace ruckig
