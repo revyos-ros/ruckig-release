@@ -22,7 +22,7 @@ void BrakeProfile::acceleration_brake(double v0, double a0, double vMax, double 
 
     if ((v_at_a_zero > vMax && jMax > 0) || (v_at_a_zero < vMax && jMax < 0)) {
         velocity_brake(v0, a0, vMax, vMin, aMax, aMin, jMax);
-    
+
     } else if ((v_at_a_max < vMin && jMax > 0) || (v_at_a_max > vMin && jMax < 0)) {
         const double t_to_v_min = -(v_at_a_max - vMin)/aMax;
         const double t_to_v_max = -aMax/(2*jMax) - (v_at_a_max - vMax)/aMax;
@@ -61,6 +61,10 @@ void BrakeProfile::get_position_brake_trajectory(double v0, double a0, double vM
     j[0] = 0.0;
     j[1] = 0.0;
 
+    if (jMax == 0.0 || aMax == 0.0 || aMin == 0.0) {
+        return; // Ignore braking for zero-limits
+    }
+
     if (a0 > aMax) {
         acceleration_brake(v0, a0, vMax, vMin, aMax, aMin, jMax);
 
@@ -75,11 +79,37 @@ void BrakeProfile::get_position_brake_trajectory(double v0, double a0, double vM
     }
 }
 
+void BrakeProfile::get_second_order_position_brake_trajectory(double v0, double vMax, double vMin, double aMax, double aMin) {
+    t[0] = 0.0;
+    t[1] = 0.0;
+    j[0] = 0.0;
+    j[1] = 0.0;
+    a[0] = 0.0;
+    a[1] = 0.0;
+
+    if (aMax == 0.0 || aMin == 0.0) {
+        return; // Ignore braking for zero-limits
+    }
+
+    if (v0 > vMax) {
+        a[0] = aMin;
+        t[0] = (vMax - v0)/aMin + eps;
+
+    } else if (v0 < vMin) {
+        a[0] = aMax;
+        t[0] = (vMin - v0)/aMax + eps;
+    }
+}
+
 void BrakeProfile::get_velocity_brake_trajectory(double a0, double aMax, double aMin, double jMax) {
     t[0] = 0.0;
     t[1] = 0.0;
     j[0] = 0.0;
     j[1] = 0.0;
+
+    if (jMax == 0.0) {
+        return; // Ignore braking for zero-limits
+    }
 
     if (a0 > aMax) {
         j[0] = -jMax;
@@ -89,6 +119,13 @@ void BrakeProfile::get_velocity_brake_trajectory(double a0, double aMax, double 
         j[0] = jMax;
         t[0] = -(a0 - aMin)/jMax + eps;
     }
+}
+
+void BrakeProfile::get_second_order_velocity_brake_trajectory() {
+    t[0] = 0.0;
+    t[1] = 0.0;
+    j[0] = 0.0;
+    j[1] = 0.0;
 }
 
 } // namespace ruckig

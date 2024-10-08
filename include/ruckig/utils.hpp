@@ -1,15 +1,15 @@
 #pragma once
 
 #include <array>
-#include <string>
-#include <sstream>
 #include <iomanip>
+#include <sstream>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <vector>
 
-namespace ruckig {
 
+namespace ruckig {
 
 //! Constant for indicating a dynamic (run-time settable) number of DoFs
 constexpr static size_t DynamicDOFs {0};
@@ -22,18 +22,19 @@ template<class T, size_t DOFs, size_t SIZE> using StandardSizeVector = typename 
 
 //! Vector data type based on the Eigen matrix type. Eigen needs to be included seperately
 #ifdef EIGEN_VERSION_AT_LEAST
-#if EIGEN_VERSION_AT_LEAST(3,4,0)
-    template<class T, size_t DOFs> using EigenVector = typename std::conditional<DOFs >= 1, Eigen::Vector<T, DOFs>, Eigen::Vector<T, Eigen::Dynamic>>::type;
+#if EIGEN_VERSION_AT_LEAST(3,3,7)
+    template<class T, size_t DOFs> using EigenVector = typename std::conditional<DOFs >= 1, Eigen::Matrix<T, DOFs, 1>, Eigen::Matrix<T, Eigen::Dynamic, 1>>::type;
 #endif
 #endif
 
 
 template<class Vector>
-inline std::string join(const Vector& array, size_t size) {
+inline std::string join(const Vector& array, bool high_precision = false) {
     std::ostringstream ss;
-    for (size_t i = 0; i < size; ++i) {
+    for (size_t i = 0; i < array.size(); ++i) {
         if (i) ss << ", ";
-        ss << std::setprecision(16) << array[i];
+        if (high_precision) ss << std::setprecision(16);
+        ss << array[i];
     }
     return ss.str();
 }
