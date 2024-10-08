@@ -4,10 +4,6 @@
 #include <cmath>
 #include <iostream>
 
-#ifdef WITH_SERIALIZATION
-#include <json/json.hpp>
-#endif
-
 #include <ruckig/utils.hpp>
 
 
@@ -27,13 +23,19 @@ public:
     //! Profile information for a two-step profile
     std::array<double, 2> t, j, a, v, p;
 
-    //! Calculate brake trajectory for position interface
+    //! Calculate brake trajectory for third-order position interface
     void get_position_brake_trajectory(double v0, double a0, double vMax, double vMin, double aMax, double aMin, double jMax);
 
-    //! Calculate brake trajectory for velocity interface
+    //! Calculate brake trajectory for second-order position interface
+    void get_second_order_position_brake_trajectory(double v0, double vMax, double vMin, double aMax, double aMin);
+
+    //! Calculate brake trajectory for third-order velocity interface
     void get_velocity_brake_trajectory(double a0, double aMax, double aMin, double jMax);
 
-    //! Finalize by integrating along kinematic state
+    //! Calculate brake trajectory for second-order velocity interface
+    void get_second_order_velocity_brake_trajectory();
+
+    //! Finalize third-order braking by integrating along kinematic state
     void finalize(double& ps, double& vs, double& as) {
         if (t[0] <= 0.0 && t[1] <= 0.0) {
             duration = 0.0;
@@ -55,9 +57,18 @@ public:
         }
     }
 
-#ifdef WITH_SERIALIZATION
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(BrakeProfile, duration, t, j, a, v, p)
-#endif
+    //! Finalize second-order braking by integrating along kinematic state
+    void finalize_second_order(double& ps, double& vs, double& as) {
+        if (t[0] <= 0.0) {
+            duration = 0.0;
+            return;
+        }
+
+        duration = t[0];
+        p[0] = ps;
+        v[0] = vs;
+        std::tie(ps, vs, as) = integrate(t[0], ps, vs, a[0], 0.0);
+    }
 };
 
 } // namespace ruckig

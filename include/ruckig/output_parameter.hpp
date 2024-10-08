@@ -10,7 +10,7 @@
 
 namespace ruckig {
 
-//! Output type of Ruckig
+//! Output of the Ruckig algorithm
 template<size_t DOFs, template<class, size_t> class CustomVector = StandardVector>
 class OutputParameter {
     template<class T> using Vector = CustomVector<T, DOFs>;
@@ -19,6 +19,7 @@ class OutputParameter {
         new_position.resize(dofs);
         new_velocity.resize(dofs);
         new_acceleration.resize(dofs);
+        new_jerk.resize(dofs);
     }
 
 public:
@@ -28,7 +29,7 @@ public:
     Trajectory<DOFs, CustomVector> trajectory;
 
     // Current kinematic state
-    Vector<double> new_position, new_velocity, new_acceleration;
+    Vector<double> new_position, new_velocity, new_acceleration, new_jerk;
 
     //! Current time on trajectory
     double time {0.0};
@@ -48,20 +49,29 @@ public:
     //! Computational duration of the last update call
     double calculation_duration; // [µs]
 
-    template <size_t D = DOFs, typename std::enable_if<D >= 1, int>::type = 0>
+    template<size_t D = DOFs, typename std::enable_if<(D >= 1), int>::type = 0>
     OutputParameter(): degrees_of_freedom(DOFs) { }
 
-    template <size_t D = DOFs, typename std::enable_if<D == 0, int>::type = 0>
-    OutputParameter(size_t dofs): degrees_of_freedom(dofs), trajectory(Trajectory<0, CustomVector>(dofs)) {
+    template<size_t D = DOFs, typename std::enable_if<(D == 0), int>::type = 0>
+    OutputParameter(size_t dofs):
+        degrees_of_freedom(dofs),
+        trajectory(Trajectory<0, CustomVector>(dofs))
+    {
         resize(dofs);
     }
 
-#if defined WITH_ONLINE_CLIENT
-    template <size_t D = DOFs, typename std::enable_if<D >= 1, int>::type = 0>
-    OutputParameter(size_t max_number_of_waypoints): degrees_of_freedom(DOFs), trajectory(Trajectory<DOFs, CustomVector>(max_number_of_waypoints)) { }
+#if defined WITH_CLOUD_CLIENT
+    template<size_t D = DOFs, typename std::enable_if<(D >= 1), int>::type = 0>
+    OutputParameter(size_t max_number_of_waypoints):
+        degrees_of_freedom(DOFs),
+        trajectory(Trajectory<DOFs, CustomVector>(max_number_of_waypoints))
+    { }
 
-    template <size_t D = DOFs, typename std::enable_if<D == 0, int>::type = 0>
-    OutputParameter(size_t dofs, size_t max_number_of_waypoints): degrees_of_freedom(dofs), trajectory(Trajectory<0, CustomVector>(dofs, max_number_of_waypoints)) {
+    template<size_t D = DOFs, typename std::enable_if<(D == 0), int>::type = 0>
+    OutputParameter(size_t dofs, size_t max_number_of_waypoints):
+        degrees_of_freedom(dofs),
+        trajectory(Trajectory<0, CustomVector>(dofs, max_number_of_waypoints))
+    {
         resize(dofs);
     }
 #endif
@@ -79,9 +89,10 @@ public:
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "\nout.new_position = [" << join(new_position, degrees_of_freedom) << "]\n";
-        ss << "out.new_velocity = [" << join(new_velocity, degrees_of_freedom) << "]\n";
-        ss << "out.new_acceleration = [" << join(new_acceleration, degrees_of_freedom) << "]\n";
+        ss << "\nout.new_position = [" << join(new_position, true) << "]\n";
+        ss << "out.new_velocity = [" << join(new_velocity, true) << "]\n";
+        ss << "out.new_acceleration = [" << join(new_acceleration, true) << "]\n";
+        ss << "out.new_jerk = [" << join(new_jerk, true) << "]\n";
         ss << "out.time = [" << std::setprecision(16) << time << "]\n";
         ss << "out.calculation_duration = [" << std::setprecision(16) << calculation_duration << "]\n";
         return ss.str();
