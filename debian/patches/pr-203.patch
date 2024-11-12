@@ -1,14 +1,17 @@
-From b860bd3ca128d7cfff7ff8a51043c2a0b3618837 Mon Sep 17 00:00:00 2001
+From 75e34a8d28dc1b9c500d6204b7de6adac57613bb Mon Sep 17 00:00:00 2001
 From: pantor <lars.berscheid@online.de>
 Date: Thu, 5 Sep 2024 22:10:36 +0200
-Subject: [PATCH 1/5] test build package
+Subject: [PATCH] add pr-203
 
 ---
- .github/workflows/ci.yml | 28 ++++++++++++++++++++++++----
- 1 file changed, 24 insertions(+), 4 deletions(-)
+ .github/workflows/ci.yml          | 25 ++++++++++++++++++++++++-
+ CMakeLists.txt                    |  5 ++++-
+ examples/CMakeLists-directory.txt |  2 +-
+ examples/CMakeLists-installed.txt |  2 +-
+ 4 files changed, 30 insertions(+), 4 deletions(-)
 
 diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index 8f84706..b9983c2 100644
+index 8f84706..67b7fc0 100644
 --- a/.github/workflows/ci.yml
 +++ b/.github/workflows/ci.yml
 @@ -3,7 +3,7 @@ name: CI
@@ -20,17 +23,7 @@ index 8f84706..b9983c2 100644
      runs-on: ${{ matrix.os }}
  
      strategy:
-@@ -18,9 +18,6 @@ jobs:
-     - name: Get cross-platform /dev/null for hidden output
-       run: echo "HIDDEN=$(python3 -c "import os; print(os.devnull)")" >> $GITHUB_ENV
- 
--    - name: Install pybind11
--      run: git clone --depth 1 --branch v2.13.1 https://github.com/pybind/pybind11.git
--
-     - name: Install valgrind
-       if: matrix.os == 'ubuntu-latest'
-       run: sudo apt-get update && sudo apt-get install -y valgrind
-@@ -63,6 +60,29 @@ jobs:
+@@ -63,6 +63,29 @@ jobs:
          ctest --test-dir ./build -T memcheck
  
  
@@ -47,7 +40,7 @@ index 8f84706..b9983c2 100644
 +
 +    - name: Install package
 +      working-directory: build
-+      run: apt install ./ruckig-*.deb
++      run: sudo apt-get install ./ruckig-*.deb
 +
 +    - name: Test building examples
 +      working-directory: examples
@@ -60,64 +53,29 @@ index 8f84706..b9983c2 100644
    lint-python:
      runs-on: ubuntu-latest
  
-
-From 4493a5aef91de629b5e40241a2ba07d354c1230d Mon Sep 17 00:00:00 2001
-From: pantor <lars.berscheid@online.de>
-Date: Thu, 5 Sep 2024 22:11:58 +0200
-Subject: [PATCH 2/5] re-add pybind11 in ci
-
----
- .github/workflows/ci.yml | 3 +++
- 1 file changed, 3 insertions(+)
-
-diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index b9983c2..0ad953d 100644
---- a/.github/workflows/ci.yml
-+++ b/.github/workflows/ci.yml
-@@ -18,6 +18,9 @@ jobs:
-     - name: Get cross-platform /dev/null for hidden output
-       run: echo "HIDDEN=$(python3 -c "import os; print(os.devnull)")" >> $GITHUB_ENV
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2ea2ff7..9c80d87 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -48,7 +48,7 @@ if(BUILD_CLOUD_CLIENT)
+   target_sources(ruckig PRIVATE src/ruckig/cloud_client.cpp)
+   target_include_directories(ruckig PUBLIC
+     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party>
+-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
++    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/ruckig/third_party>
+   )
+   target_compile_definitions(ruckig PUBLIC WITH_CLOUD_CLIENT)
+ endif()
+@@ -131,6 +131,9 @@ include(CMakePackageConfigHelpers)
  
-+    - name: Install pybind11
-+      run: git clone --depth 1 --branch v2.13.1 https://github.com/pybind/pybind11.git
-+
-     - name: Install valgrind
-       if: matrix.os == 'ubuntu-latest'
-       run: sudo apt-get update && sudo apt-get install -y valgrind
-
-From c3ade8a879442e14b0a429ba42f4684a8acbe35e Mon Sep 17 00:00:00 2001
-From: pantor <lars.berscheid@online.de>
-Date: Thu, 5 Sep 2024 22:13:08 +0200
-Subject: [PATCH 3/5] apt install with sudo
-
----
- .github/workflows/ci.yml | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index 0ad953d..67b7fc0 100644
---- a/.github/workflows/ci.yml
-+++ b/.github/workflows/ci.yml
-@@ -76,7 +76,7 @@ jobs:
+ # Install headers
+ install(DIRECTORY include/ruckig DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
++if(BUILD_CLOUD_CLIENT)
++  install(DIRECTORY third_party/httplib third_party/nlohmann DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ruckig/third_party)
++endif()
  
-     - name: Install package
-       working-directory: build
--      run: apt install ./ruckig-*.deb
-+      run: sudo apt-get install ./ruckig-*.deb
- 
-     - name: Test building examples
-       working-directory: examples
-
-From 4ba04dc7eb05611b217b3b2eed39f249ad45b627 Mon Sep 17 00:00:00 2001
-From: pantor <lars.berscheid@online.de>
-Date: Thu, 5 Sep 2024 22:17:49 +0200
-Subject: [PATCH 4/5] change example CMake dirs
-
----
- examples/CMakeLists-directory.txt | 2 +-
- examples/CMakeLists-installed.txt | 2 +-
- 2 files changed, 2 insertions(+), 2 deletions(-)
-
+ # Install library
+ install(TARGETS ruckig
 diff --git a/examples/CMakeLists-directory.txt b/examples/CMakeLists-directory.txt
 index 9f6e39a..11138b5 100644
 --- a/examples/CMakeLists-directory.txt
@@ -146,36 +104,6 @@ index 438aca2..3719a9d 100644
  
  target_link_libraries(example-position PRIVATE ruckig::ruckig)
 \ No newline at end of file
+-- 
+2.46.0
 
-From 76e1d0aac0425a7a2cb4e26d9410be79209ba54f Mon Sep 17 00:00:00 2001
-From: pantor <lars.berscheid@online.de>
-Date: Thu, 5 Sep 2024 22:22:20 +0200
-Subject: [PATCH 5/5] fix missing header installation
-
----
- CMakeLists.txt | 5 ++++-
- 1 file changed, 4 insertions(+), 1 deletion(-)
-
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 2ea2ff7..9c80d87 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -48,7 +48,7 @@ if(BUILD_CLOUD_CLIENT)
-   target_sources(ruckig PRIVATE src/ruckig/cloud_client.cpp)
-   target_include_directories(ruckig PUBLIC
-     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party>
--    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/ruckig/third_party>
-   )
-   target_compile_definitions(ruckig PUBLIC WITH_CLOUD_CLIENT)
- endif()
-@@ -131,6 +131,9 @@ include(CMakePackageConfigHelpers)
- 
- # Install headers
- install(DIRECTORY include/ruckig DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-+if(BUILD_CLOUD_CLIENT)
-+  install(DIRECTORY third_party/httplib third_party/nlohmann DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ruckig/third_party)
-+endif()
- 
- # Install library
- install(TARGETS ruckig
